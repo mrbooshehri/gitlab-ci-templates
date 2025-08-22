@@ -2,7 +2,7 @@
   stage: update-manifest
   image: $HARBOR_ADDRESS/pub/alpine:yq
   variables:
-    GITOPS_REPO: https://YOUR_REPOSITORY/devops/gitops.git
+    GITOPS_REPO: https://$ARGO_GITLAB_USER:$ARGO_GITLAB_TOKEN@YOUR_REPOSITORY/devops/gitops.git
     GITOPS_BRANCH: dev
     GITOPS_KUSTOMIZE_DIR: kustomize
   before_script:
@@ -10,10 +10,10 @@
         git config --global user.email "ci@gitlab.com"
         git config --global user.name "GitLab CI"
         echo "Cloning GitOps repo $GITOPS_REPO..."
-        git clone https://$ARGO_GITLAB_USER:$ARGO_GITLAB_TOKEN@$GITOPS_REPO gitops
+        git clone $GITOPS_REPO gitops
         cd gitops
         git checkout $GITOPS_BRANCH
-        git remote set-url origin https://$ARGO_GITLAB_USER:$ARGO_GITLAB_TOKEN@$GITOPS_REPO
+        git remote set-url origin $GITOPS_REPO
 
         echo "Determining IMAGE_TAG..."
         if [[ "$CI_COMMIT_BRANCH" == Main ]] || [[ "$CI_COMMIT_BRANCH" == main ]]; then

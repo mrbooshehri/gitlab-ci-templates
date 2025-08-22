@@ -1,0 +1,89 @@
+.default-variables: &default-variables
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  BUILD_ARGS: ""
+  DOCKERFILE_PATH: ""
+  PROJECT: ""
+  GITLAB_RUNNER: ""
+  GIT_DEPTH: 0  
+
+.docker-scripts: &docker-scripts
+  services:
+    - name: $HARBOR_ADDRESS/pub/docker:20.10-dind
+  image: $HARBOR_ADDRESS/pub/docker:20.10-dind
+  variables:
+    <<: *default-variables
+  before_script:
+    - |
+        echo "Logging in to Gitlab container registry: $HARBOR_ADDRESS"
+        echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_ADDRESS"
+
+  script:
+    - |
+        IMAGE_REPO_BASE="$HARBOR_ADDRESS/espad/$CI_PROJECT_NAME"
+        
+        if [[ "$CI_COMMIT_BRANCH" == Main ]] || [[ "$CI_COMMIT_BRANCH" == main ]]; then
+          VERSION_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+        else
+          VERSION_TAG="${VERSION_TAG:-$CI_PROJECT_ID-$CI_PIPELINE_IID-$CI_COMMIT_SHORT_SHA}"
+        fi
+
+        IMAGE_TAG="$IMAGE_REPO_BASE:$VERSION_TAG"
+
+        BUILD_CMD="docker build -f $DOCKERFILE_PATH -t $IMAGE_TAG ."
+        if [[ -n "$BUILD_ARGS" ]]; then
+          BUILD_CMD="docker build $BUILD_ARGS -f $DOCKERFILE_PATH -t $IMAGE_TAG ."
+        fi
+
+        echo "Running: $BUILD_CMD"
+        eval "$BUILD_CMD"
+        docker push "$IMAGE_TAG"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(Main|main|Dev|dev|Test|test|Stage|stage)$/'
+      when: always
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: always
+    - when: never
+
+.podman-scripts: &podman-scripts
+  image: $HARBOR_ADDRESS/pub/podman:latest
+  variables:
+    <<: *default-variables
+  before_script:
+    - |
+        echo "Logging in to Gitlab container registry: $HARBOR_ADDRESS"
+        podman login -u "$HARBOR_USERNAME" -p "$HARBOR_PASSWORD" "$HARBOR_ADDRESS"
+        echo "Get all tags"
+        git fetch --tags
+  script:
+    - |
+        IMAGE_REPO_BASE="$HARBOR_ADDRESS/espad/$CI_PROJECT_NAME"
+        
+        if [[ "$CI_COMMIT_BRANCH" =~ ^(main|Main)$ ]]; then
+          VERSION_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+        else
+          VERSION_TAG="${VERSION_TAG:-$CI_PROJECT_ID-$CI_PIPELINE_IID-$CI_COMMIT_SHORT_SHA}"
+        fi        IMAGE_TAG="$IMAGE_REPO_BASE:$VERSION_TAG"
+
+        BUILD_CMD="docker build -f $DOCKERFILE_PATH -t $IMAGE_TAG ."
+        if [[ -n "$BUILD_ARGS" ]]; then
+          BUILD_CMD="docker build $BUILD_ARGS -f $DOCKERFILE_PATH -t $IMAGE_TAG ."
+        fi
+
+        echo "Running: $BUILD_CMD"
+        eval "$BUILD_CMD"
+        docker push "$IMAGE_TAG"
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(main|Main)$/'
+      when: manual
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(Dev|dev|Test|test|Stage|stage)$/'
+      when: always
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: always
+    - when: never
+
+.dockerize:
+  stage: dockerize
+  <<: *docker-scripts
+  tags:
+    - $GITLAB_RUNNER

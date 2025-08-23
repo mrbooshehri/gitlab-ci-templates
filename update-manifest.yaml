@@ -2,19 +2,11 @@
   stage: update-manifest
   image: $HARBOR_ADDRESS/pub/alpine:yq
   variables:
-    GITOPS_REPO: https://$ARGO_GITLAB_USER:$ARGO_GITLAB_TOKEN@YOUR_REPOSITORY/devops/gitops.git
+    GITOPS_REPO: https://$ARGO_GITLAB_USER:$ARGO_GITLAB_TOKEN@gitlab.espadev.ir/devops/gitops.git
     GITOPS_BRANCH: dev
     GITOPS_KUSTOMIZE_DIR: kustomize
   before_script:
     - |
-        git config --global user.email "ci@gitlab.com"
-        git config --global user.name "GitLab CI"
-        echo "Cloning GitOps repo $GITOPS_REPO..."
-        git clone $GITOPS_REPO gitops
-        cd gitops
-        git checkout $GITOPS_BRANCH
-        git remote set-url origin $GITOPS_REPO
-
         echo "Determining IMAGE_TAG..."
         if [[ "$CI_COMMIT_BRANCH" == Main ]] || [[ "$CI_COMMIT_BRANCH" == main ]]; then
           IMAGE_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
@@ -22,28 +14,32 @@
           IMAGE_TAG="${CI_PROJECT_ID}-${CI_PIPELINE_IID}-${CI_COMMIT_SHORT_SHA}"
         fi
         echo "IMAGE_TAG=$IMAGE_TAG"
-
+        git config --global user.email "ci@gitlab.com"
+        git config --global user.name "GitLab CI"
+        echo "Cloning GitOps repo $GITOPS_REPO..."
+        git clone $GITOPS_REPO gitops
+        cd gitops
+        git checkout $GITOPS_BRANCH
+        git remote set-url origin $GITOPS_REPO
   script:
-    - echo "Updating Kustomize image tags for $CI_PROJECT_NAME..."
+    - echo "Updating Kustomize image tags for ${SERVICE:-$CI_PROJECT_NAME}..."
     - |
       case "$CI_COMMIT_BRANCH" in
-        production|Production)
-          yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $GITOPS_KUSTOMIZE_DIR/overlays/production/$CI_PROJECT_NAME/kustomization.yaml
+        main|Main)
+          yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $GITOPS_KUSTOMIZE_DIR/overlays/production/${SERVICE:-$CI_PROJECT_NAME}/kustomization.yaml
           ;;
-        stage|Stage)
-          yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $GITOPS_KUSTOMIZE_DIR/overlays/stage/$CI_PROJECT_NAME/kustomization.yaml
+        dev|Dev)
+          yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $GITOPS_KUSTOMIZE_DIR/overlays/stage/${SERVICE:-$CI_PROJECT_NAME}/kustomization.yaml
           ;;
         test|Test)
-          yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $GITOPS_KUSTOMIZE_DIR/overlays/test/$CI_PROJECT_NAME/kustomization.yaml
+          yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $GITOPS_KUSTOMIZE_DIR/overlays/test/${SERVICE:-$CI_PROJECT_NAME}/kustomization.yaml
           ;;
       esac
     - git status
-    - git add $GITOPS_KUSTOMIZE_DIR/overlays/*/$CI_PROJECT_NAME/kustomization.yaml
-    - git diff --cached --quiet || git commit -m "Update $CI_PROJECT_NAME image tag to $IMAGE_TAG for $CI_COMMIT_BRANCH envs"
+    - git add $GITOPS_KUSTOMIZE_DIR/overlays/*/${SERVICE:-$CI_PROJECT_NAME}/kustomization.yaml
+    - git diff --cached --quiet || git commit -m "Update ${SERVICE:-$CI_PROJECT_NAME} image tag to $IMAGE_TAG for $CI_COMMIT_BRANCH envs"
     - git push origin $GITOPS_BRANCH
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(Main|main|Dev|dev|Test|test|Stage|stage)$/'
-      when: always
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(Main|main|Dev|dev|Test|test)$/'
     - if: '$CI_PIPELINE_SOURCE == "web"'
-      when: always
     - when: never

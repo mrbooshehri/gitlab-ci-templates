@@ -9,26 +9,32 @@
 
 .docker-scripts: &docker-scripts
   services:
-    - name: $HARBOR_ADDRESS/pub/docker:20.10-dind
-  image: $HARBOR_ADDRESS/pub/docker:20.10-dind
+    - name: $HARBOR_ADDRESS/pub/docker:20.10-dind-git
+  image: $HARBOR_ADDRESS/pub/docker:20.10-dind-git
   variables:
     <<: *default-variables
   before_script:
     - |
         echo "Logging in to Gitlab container registry: $HARBOR_ADDRESS"
         echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_ADDRESS"
-
+        echo "Get all tags"
+        git fetch --tags
   script:
     - |
         IMAGE_REPO_BASE="$HARBOR_ADDRESS/espad/$CI_PROJECT_NAME"
         
+        echo "Determining VERSION_TAG..."
         if [[ "$CI_COMMIT_BRANCH" == Main ]] || [[ "$CI_COMMIT_BRANCH" == main ]]; then
           VERSION_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
         else
-          VERSION_TAG="${VERSION_TAG:-$CI_PROJECT_ID-$CI_PIPELINE_IID-$CI_COMMIT_SHORT_SHA}"
+          VERSION_TAG="${VERSION_TAG:-$CI_PROJECT_ID-$CI_PIPELINE_IID-$CI_COMMIT_SHORT_SHA}"   
         fi
+        
+        echo "VERSION_TAG=$VERSION_TAG"
 
         IMAGE_TAG="$IMAGE_REPO_BASE:$VERSION_TAG"
+        
+        echo "IMAGE_TAG=$IMAGE_REPO_BASE:$VERSION_TAG"
 
         BUILD_CMD="docker build -f $DOCKERFILE_PATH -t $IMAGE_TAG ."
         if [[ -n "$BUILD_ARGS" ]]; then
@@ -46,7 +52,7 @@
     - when: never
 
 .podman-scripts: &podman-scripts
-  image: $HARBOR_ADDRESS/pub/podman:latest
+  image: $HARBOR_ADDRESS/pub/podman:git
   variables:
     <<: *default-variables
   before_script:
@@ -75,11 +81,8 @@
         docker push "$IMAGE_TAG"
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(main|Main)$/'
-      when: manual
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(Dev|dev|Test|test|Stage|stage)$/'
-      when: always
     - if: '$CI_PIPELINE_SOURCE == "web"'
-      when: always
     - when: never
 
 .dockerize:
